@@ -1,7 +1,9 @@
 # Copyright (c) 2025 DFlexy · https://github.com/DFlexy
 
-import logging
 import sys
+sys.dont_write_bytecode = True
+
+import logging
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)

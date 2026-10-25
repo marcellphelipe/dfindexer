@@ -1,5 +1,8 @@
 # Copyright (c) 2025 DFlexy · https://github.com/DFlexy
 
+import sys
+sys.dont_write_bytecode = True
+
 import logging
 from typing import List, Dict, Optional, Callable
 from tracker import get_tracker_service

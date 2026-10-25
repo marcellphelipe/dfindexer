@@ -1,5 +1,8 @@
 # Copyright (c) 2025 DFlexy · https://github.com/DFlexy
 
+import sys
+sys.dont_write_bytecode = True
+
 import html
 import json
 import re
@@ -27,7 +30,7 @@ _log_ctx = ScraperLogContext("Starck", logger)
 
 SITE = SiteConfig(
     # Endereço do site: ajuste aqui se o domínio mudar.
-    url="https://www.starckfilmes-v26.com/",
+    url="https://www.starckfilmes-v27.com/",
     caminho_busca="?s=",
     paginacao="page/{}/",
     seletores={
@@ -219,6 +222,11 @@ def _invalidate_starck_gate_cache(redis, url: str) -> None:
         pass
 
 
+_STARCK_VERSION_RE = re.compile(r'(?i)(starckfilmes-v)(\d+)')
+_STARCK_VERSION_STEPS = 3
+_STARCK_VERSION_TIMEOUT = 2
+
+
 def _normalize_starck_base_url(url: str) -> Optional[str]:
     if not url or not url.startswith('http'):
         return None
@@ -226,6 +234,37 @@ def _normalize_starck_base_url(url: str) -> Optional[str]:
     if not parsed.scheme or not parsed.netloc:
         return None
     return f'{parsed.scheme}://{parsed.netloc}/'
+
+
+def _starck_version_urls(base_url: str) -> List[str]:
+    normalized = _normalize_starck_base_url(base_url) or base_url
+    parsed = urlparse(normalized)
+    match = _STARCK_VERSION_RE.search(parsed.netloc)
+    if not match:
+        return [normalized]
+    number = int(match.group(2))
+    urls = []
+    for step in range(0, _STARCK_VERSION_STEPS + 1):
+        host = (
+            parsed.netloc[:match.start()]
+            + match.group(1)
+            + str(number + step)
+            + parsed.netloc[match.end():]
+        )
+        urls.append(f'{parsed.scheme}://{host}/')
+    return urls
+
+
+def _rewrite_starck_host(url: str, base_url: str) -> str:
+    if not url or not str(url).startswith('http'):
+        return url
+    parsed = urlparse(url)
+    base = urlparse(base_url)
+    if not _STARCK_VERSION_RE.search(parsed.netloc) or not _STARCK_VERSION_RE.search(base.netloc):
+        return url
+    if parsed.netloc == base.netloc and parsed.scheme == base.scheme:
+        return url
+    return parsed._replace(scheme=base.scheme, netloc=base.netloc).geturl()
 
 
 def _post_starck_verification_requests(
@@ -462,7 +501,42 @@ class StarckScraper(BaseScraper):
         super().__init__(base_url, use_flaresolverr)
         self._gate_bypass_attempted: set = set()
 
+    def _open_first_connection(self) -> None:
+        candidates = _starck_version_urls(self.base_url)
+        no_retry = requests.adapters.HTTPAdapter(max_retries=0)
+        self.session.mount('http://', no_retry)
+        self.session.mount('https://', no_retry)
+        last_error: Optional[Exception] = None
+        try:
+            for index, candidate in enumerate(candidates):
+                try:
+                    response = self.session.get(
+                        candidate,
+                        timeout=_STARCK_VERSION_TIMEOUT,
+                        headers={'Referer': candidate},
+                        stream=True,
+                    )
+                    response.close()
+                except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+                    last_error = exc
+                    continue
+                if index:
+                    _log_ctx.info('Endereço não respondeu em 2s, usando {}', candidate)
+                self.base_url = candidate
+                return
+            if last_error:
+                raise last_error
+            raise requests.exceptions.ConnectionError('starck indisponível')
+        finally:
+            self.session.mount('http://', self._http_adapter)
+            self.session.mount('https://', self._http_adapter)
+
     def _fetch_document(self, url: str, referer: str = ''):
+        if not self._ensure_site_online():
+            return None
+        url = _rewrite_starck_host(url, self.base_url)
+        if referer:
+            referer = _rewrite_starck_host(referer, self.base_url)
         soup = super()._fetch_document(url, referer)
         page_html = self._get_fetched_html() or ''
 
@@ -738,8 +812,40 @@ class StarckScraper(BaseScraper):
             if not href or 'get.php' in href.lower():
                 continue
             resolved_magnet = self._resolve_link(href)
-            if resolved_magnet:
-                _add_magnet(resolved_magnet)
+            if not resolved_magnet:
+                continue
+            try:
+                display_name = MagnetParser.parse(resolved_magnet).get('display_name') or ''
+            except Exception:
+                display_name = ''
+            in_buttons = buttons_root is not None and any(parent is buttons_root for parent in link.parents)
+            if not display_name.strip() and in_buttons:
+                button = link.find_parent('span', class_='btn-down')
+                paragraph = link.find_parent('p')
+                if paragraph:
+                    label = paragraph.get_text(' ', strip=True)
+                elif button:
+                    label = button.get_text(' ', strip=True)
+                else:
+                    label = link.get_text(' ', strip=True)
+                episode_code = _starck_episode_code(label, season_code)
+                quality = _starck_quality_token(label)
+                dual = dual_section or ('dual' in remove_accents(label).lower())
+                name_parts = []
+                if episode_code:
+                    name_parts.append(episode_code)
+                elif original_title:
+                    name_parts.append(re.sub(r'\s+', '.', original_title.strip()))
+                if year:
+                    name_parts.append(str(year))
+                name_parts.append('WEB-DL')
+                if quality:
+                    name_parts.append(quality)
+                if dual:
+                    name_parts.append('DUAL')
+                synthetic = '.'.join(part for part in name_parts if part)
+                resolved_magnet = _starck_magnet_with_display_name(resolved_magnet, synthetic)
+            _add_magnet(resolved_magnet)
 
         if not magnet_links:
 

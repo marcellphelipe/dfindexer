@@ -1,6 +1,9 @@
 # Copyright (c) 2025 DFlexy · https://github.com/DFlexy
 
 
+import sys
+sys.dont_write_bytecode = True
+
 from cache.store import get_redis_client
 from .service import TrackerService
 

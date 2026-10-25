@@ -1,5 +1,8 @@
 # Copyright (c) 2025 DFlexy · https://github.com/DFlexy
 
+import sys
+sys.dont_write_bytecode = True
+
 import logging
 from typing import List, Optional, TypeVar, Callable, Dict
 from urllib.parse import quote
