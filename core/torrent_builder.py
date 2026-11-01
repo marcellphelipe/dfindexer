@@ -4,6 +4,8 @@ import sys
 sys.dont_write_bytecode = True
 
 import logging
+import re
+import unicodedata
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 
@@ -27,6 +29,26 @@ def _audio_tag_origin(audio_info: str, magnet_original: str, missing_dn: bool, i
     if missing_dn and info_hash:
         return 'metadata (iTorrents.org) - usado durante processamento'
     return 'N/A'
+
+
+def disambiguate_dark_matter_2024(title: str, original_title: str,
+                                  translated_title: str, release_year: str,
+                                  magnet_name: str) -> str:
+    """Use the series premiere year, not the season release year, for this alias."""
+    def normalized(value):
+        value = unicodedata.normalize('NFKD', value or '')
+        value = ''.join(c for c in value if not unicodedata.combining(c))
+        return re.sub(r'[^a-z0-9]+', ' ', value.lower()).strip()
+
+    if not re.fullmatch(r'dark matter(?: s\d{1,3})?', normalized(original_title)) or not re.fullmatch(r'materia escura(?: \d{1,2}a? temporada)?', normalized(translated_title)):
+        return title
+    # Do not force the 2024 identity when available evidence identifies the
+    # unrelated 2015 series. Season release years such as 2026 stay intact.
+    evidence = f'{release_year or ""} {magnet_name or ""}'
+    if re.search(r'(?<!\d)201[567](?!\d)', evidence):
+        return title
+    return re.sub(r'(?i)^dark\.matter\.(?=s\d{1,3}(?:e\d{1,3}(?:-\d{1,3}|e\d{1,3})*)?(?:[.\s]|$))',
+                  'Dark.Matter.2024.', title, count=1)
 
 
 def build_torrent_from_magnet(
@@ -123,6 +145,10 @@ def build_torrent_from_magnet(
         audio_html_content=audio_html_content,
     )
 
+    final_title = disambiguate_dark_matter_2024(
+        final_title, original_title, title_translated_processed, year, magnet_original
+    )
+
     origem_audio_tag = _audio_tag_origin(audio_info, magnet_original, missing_dn, info_hash)
 
     from utils.parsing import determine_legend_presence
@@ -195,8 +221,8 @@ def build_torrent_from_magnet(
         'info_hash': info_hash,
         'trackers': trackers,
         'size': size,
-        'leech_count': 0,
-        'seed_count': 0,
+        'leech_count': None,
+        'seed_count': None,
         'magnet_original': magnet_display_name if magnet_display_name else None,
         'magnet_processed': original_release_title if original_release_title else None,
         'similarity': 1.0,

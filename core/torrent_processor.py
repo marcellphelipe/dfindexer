@@ -92,6 +92,15 @@ class TorrentProcessor:
             torrent.pop('_original_order', None)
 
 
+            # Metadata enrichment may regenerate the title after the builder.
+            from core.torrent_builder import disambiguate_dark_matter_2024
+            for title_field in ('title_processed', 'title'):
+                if torrent.get(title_field):
+                    torrent[title_field] = disambiguate_dark_matter_2024(
+                        torrent[title_field], torrent.get('original_title'),
+                        torrent.get('title_translated_processed'), torrent.get('year'),
+                        torrent.get('magnet_original'),
+                    )
             if 'title_processed' in torrent and 'title' not in torrent:
                 torrent['title'] = torrent.get('title_processed', '')
 
@@ -100,21 +109,12 @@ class TorrentProcessor:
                 torrent['date'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
-            if torrent.get('seed_count') is None:
-                torrent['seed_count'] = 0
-            else:
+            for field in ('seed_count', 'leech_count'):
                 try:
-                    torrent['seed_count'] = int(torrent['seed_count'])
+                    value = torrent.get(field)
+                    torrent[field] = max(0, int(value)) if value is not None else None
                 except (ValueError, TypeError):
-                    torrent['seed_count'] = 0
-
-            if torrent.get('leech_count') is None:
-                torrent['leech_count'] = 0
-            else:
-                try:
-                    torrent['leech_count'] = int(torrent['leech_count'])
-                except (ValueError, TypeError):
-                    torrent['leech_count'] = 0
+                    torrent[field] = None
 
             if not torrent.get('magnet_link') and torrent.get('magnet'):
                 torrent['magnet_link'] = torrent['magnet']

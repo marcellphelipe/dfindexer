@@ -465,6 +465,12 @@ def indexer_handler(site_name: str = None):
         torrents, _ = validate_torrent_results(torrents, log_prefix)
         log_response_diagnostics(torrents, filter_stats, log_prefix)
 
+        # Cardigann's regex filters reject JSON null. Keep unknown counts in
+        # the normal API, but use conservative zeroes for the Prowlarr feed.
+        if request.args.get('prowlarr_compat') == 'true':
+            torrents = [dict(t, **{field: 0 if t.get(field) is None else t[field]
+                                  for field in ('seed_count', 'leech_count')})
+                        for t in torrents]
         response_data = {
             'results': torrents,
             'count': len(torrents),

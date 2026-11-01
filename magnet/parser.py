@@ -126,29 +126,73 @@ class MagnetParser:
         raise ValueError(f"Tamanho de info_hash inválido: {len(encoded_clean)} (original: {len(encoded)})")
 
 
-def parse_bencode_size(data: bytes) -> Optional[int]:
+def parse_bencode_size(data: bytes, expected_hash: Optional[str] = None) -> Optional[int]:
+    """Read the complete v1 info dictionary, verifying its exact SHA-1 when supplied."""
     try:
-        match = re.search(rb'lengthi(\d+)e', data)
-        if match:
-            return int(match.group(1))
+        def parse(pos, depth=0):
+            if depth > 64 or pos >= len(data):
+                raise ValueError("invalid bencode")
+            token = data[pos:pos + 1]
+            if token == b'i':
+                end = data.index(b'e', pos + 1)
+                raw = data[pos + 1:end]
+                if not raw or (raw.startswith(b'0') and len(raw) > 1) or raw.startswith(b'-0'):
+                    raise ValueError("invalid integer")
+                return int(raw), end + 1
+            if token in (b'l', b'd'):
+                is_dict = token == b'd'
+                result = {} if is_dict else []
+                pos += 1
+                while pos < len(data) and data[pos:pos + 1] != b'e':
+                    value, pos = parse(pos, depth + 1)
+                    if is_dict:
+                        if not isinstance(value, bytes) or value in result:
+                            raise ValueError("invalid key")
+                        item, pos = parse(pos, depth + 1)
+                        result[value] = item
+                    else:
+                        result.append(value)
+                if pos >= len(data):
+                    raise ValueError("truncated container")
+                return result, pos + 1
+            if token.isdigit():
+                colon = data.index(b':', pos)
+                raw = data[pos:colon]
+                if not raw.isdigit() or (len(raw) > 1 and raw.startswith(b'0')):
+                    raise ValueError("invalid string")
+                end = colon + 1 + int(raw)
+                if end > len(data):
+                    raise ValueError("truncated string")
+                return data[colon + 1:end], end
+            raise ValueError("invalid token")
 
-        matches = re.findall(rb'6:lengthi(\d+)e', data)
-        if matches:
-            total = sum(int(m) for m in matches)
-            if total > 0:
-                return total
-
-        matches = re.findall(rb'i(\d{6,15})e', data)
-        if matches:
-            sizes = []
-            for num_str in matches:
-                num = int(num_str)
-                if 1048576 <= num <= 1125899906842624:
-                    sizes.append(num)
-            if sizes:
-                return sum(sizes)
-
-        return None
-    except Exception as e:
-        logger.debug(f"Bencode parse error: {type(e).__name__}")
+        if data[:1] != b'd':
+            return None
+        pos, info, info_bytes = 1, None, None
+        seen = set()
+        while pos < len(data) and data[pos:pos + 1] != b'e':
+            key, pos = parse(pos)
+            if not isinstance(key, bytes) or key in seen:
+                return None
+            seen.add(key)
+            start = pos
+            value, pos = parse(pos)
+            if key == b'info':
+                info, info_bytes = value, data[start:pos]
+        if pos != len(data) - 1 or data[pos:pos + 1] != b'e' or not isinstance(info, dict):
+            return None
+        if expected_hash and hashlib.sha1(info_bytes).hexdigest() != expected_hash.lower():
+            return None
+        files = info.get(b'files')
+        if files is not None:
+            if not isinstance(files, list) or not files:
+                return None
+            lengths = [f.get(b'length') if isinstance(f, dict) else None for f in files]
+            if any(type(n) is not int or n < 0 for n in lengths):
+                return None
+            size = sum(lengths)
+        else:
+            size = info.get(b'length')
+        return size if type(size) is int and size > 0 else None
+    except (ValueError, IndexError, OverflowError, RecursionError):
         return None

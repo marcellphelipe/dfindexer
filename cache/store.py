@@ -25,7 +25,7 @@ def html_failure_key(url: str) -> str:
     return f"html:failure:{url_hash(url)}"
 
 def metadata_key(info_hash: str) -> str:
-    return f"metadata:data:{info_hash.lower()}"
+    return f"metadata:verified-v2:{info_hash.lower()}"
 
 def metadata_failure_key(info_hash: str) -> str:
     return f"metadata:failure:{info_hash.lower()}"

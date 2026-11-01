@@ -21,11 +21,11 @@ def parse_cross_data(raw_map: Dict[bytes, bytes]) -> Dict[str, Any]:
         value_str = value.decode('utf-8')
         if field_str in ('missing_dn', 'has_legenda'):
             parsed[field_str] = value_str.lower() == 'true'
-        elif field_str in ('tracker_seed', 'tracker_leech'):
+        elif field_str in ('tracker_seed_v2', 'tracker_leech_v2'):
             try:
-                parsed[field_str] = int(value_str) if value_str and value_str != 'N/A' else 0
+                parsed[field_str] = int(value_str) if value_str and value_str != 'N/A' else None
             except (TypeError, ValueError):
-                parsed[field_str] = 0
+                parsed[field_str] = None
         else:
             parsed[field_str] = value_str if value_str and value_str != 'N/A' else None
     return parsed
@@ -78,68 +78,31 @@ def apply_size_fallback(
     skip_metadata: bool = False,
     cross_data_by_hash: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> None:
-    from utils.text import save_cross_data_to_redis
-
-    metadata_enabled = not skip_metadata
-    if cross_data_by_hash is None:
-        cross_data_by_hash = bulk_get_cross_data(
-            [str(t.get('info_hash') or '').lower() for t in torrents]
-        )
-
-    def _save_size(info_hash: str, size: str) -> None:
-        if info_hash and len(info_hash) == 40:
-            try:
-                save_cross_data_to_redis(info_hash, {'size': size})
-            except Exception:
-                pass
-
+    # Old cross-source and HTML size fields may refer to a different magnet.
+    # Trust only hash-verified torrent metadata, or the magnet's explicit xl.
+    from cache.store import MetadataCache
+    metadata_cache = MetadataCache() if not skip_metadata else None
     for torrent in torrents:
-        html_size = torrent.get('size', '')
-        info_hash = (torrent.get('info_hash') or '').lower()
-        magnet_link = torrent.get('magnet_link')
-        if not magnet_link:
-            continue
-
-        cross_data = cross_data_by_hash.get(info_hash) if info_hash else None
-        if cross_data and cross_data.get('size'):
-            cross_size = cross_data.get('size')
-            if cross_size and cross_size.strip() and cross_size != 'N/A':
-                torrent['size'] = cross_size.strip()
-                continue
-
-        magnet_data = None
-        try:
-            magnet_data = MagnetParser.parse(magnet_link)
-        except Exception:
-            pass
-
         torrent['size'] = ''
-
-        if metadata_enabled and torrent.get('_metadata') and 'size' in torrent['_metadata']:
+        metadata = torrent.get('_metadata') or {}
+        # The batch fetch can skip a torrent based on unrelated cross-data.
+        # Still consult the hash-verified metadata cache before falling back.
+        if not metadata.get('size') and metadata_cache and torrent.get('info_hash'):
             try:
-                formatted_size = format_bytes(torrent['_metadata']['size'])
-                if formatted_size:
-                    torrent['size'] = formatted_size
-                    _save_size(info_hash, formatted_size)
-                    continue
+                metadata = metadata_cache.get(torrent['info_hash']) or metadata
             except Exception:
                 pass
-
-        if magnet_data:
-            xl = magnet_data.get('params', {}).get('xl')
-            if xl:
-                try:
-                    formatted_size = format_bytes(int(xl))
-                    if formatted_size:
-                        torrent['size'] = formatted_size
-                        _save_size(info_hash, formatted_size)
-                        continue
-                except Exception:
-                    pass
-
-        if html_size:
-            torrent['size'] = html_size
-            _save_size(info_hash, html_size)
+        size = metadata.get('size') if not skip_metadata else None
+        if size:
+            torrent['size'] = format_bytes(size)
+            continue
+        try:
+            magnet = MagnetParser.parse(torrent.get('magnet_link') or '')
+            xl = magnet.get('params', {}).get('xl')
+            if xl and int(xl) > 0:
+                torrent['size'] = format_bytes(int(xl))
+        except (ValueError, TypeError):
+            pass
 
 
 def apply_date_fallback(torrents: List[Dict], skip_metadata: bool = False) -> None:

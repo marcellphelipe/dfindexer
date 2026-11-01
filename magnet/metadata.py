@@ -288,13 +288,13 @@ def _fetch_torrent_header(info_hash: str, use_lowercase: bool = False) -> Tuple[
     
     session = _get_http_session()
     timeout_config = (3, 4)
-    max_bytes = 512 * 1024
+    max_bytes = 8 * 1024 * 1024
     
     _rate_limit()
     
     try:
         headers = {'Range': f'bytes=0-{max_bytes - 1}'}
-        response = session.get(url, headers=headers, timeout=timeout_config)
+        response = session.get(url, headers=headers, timeout=timeout_config, stream=True)
         
         if response.status_code == 404:
             _cache_failure(info_hash, is_503=False)
@@ -307,7 +307,10 @@ def _fetch_torrent_header(info_hash: str, use_lowercase: bool = False) -> Tuple[
             _cache_failure(info_hash, is_503=False)
             return None, False, False
         
-        data = response.content
+        data = response.raw.read(max_bytes + 1)
+        response.close()
+        if len(data) > max_bytes:
+            return None, False, False
         if not data:
             return None, False, False
         
@@ -315,10 +318,6 @@ def _fetch_torrent_header(info_hash: str, use_lowercase: bool = False) -> Tuple[
             return None, False, False
         
         _record_success()
-        
-        if b'pieces' in data:
-            idx = data.index(b'pieces')
-            return data[:idx + 20], False, False
         
         return data, False, False
     
@@ -421,7 +420,7 @@ def fetch_metadata_from_itorrents(info_hash: str, scraper_name: Optional[str] = 
                 _hash_fetching.discard(info_hash_lower)
             raise
         
-        size = _parse_bencode_size(torrent_data)
+        size = _parse_bencode_size(torrent_data, info_hash)
         
         if not size:
 

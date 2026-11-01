@@ -198,7 +198,7 @@ async def _fetch_torrent_header_async(
     url = f"https://itorrents.org/torrent/{info_hash_hex}.torrent"
     
     timeout = aiohttp.ClientTimeout(total=3.5, connect=2, sock_read=1.5)
-    max_size = 512 * 1024
+    max_size = 8 * 1024 * 1024
     
     await _rate_limit()
     
@@ -215,17 +215,21 @@ async def _fetch_torrent_header_async(
                     return None, False, True
                 return None, False, False
 
-            all_data = await response.read()
+            chunks = []
+            total = 0
+            async for chunk in response.content.iter_chunked(65536):
+                total += len(chunk)
+                if total > max_size:
+                    return None, False, False
+                chunks.append(chunk)
+            all_data = b''.join(chunks)
+            if len(all_data) > max_size:
+                return None, False, False
             if not all_data:
                 return None, False, False
 
             if b'<!DOCTYPE html' in all_data or b'<html' in all_data.lower():
                 return None, False, False
-
-            if b'pieces' in all_data:
-                pieces_index = all_data.index(b'pieces')
-                await _record_success()
-                return all_data[:pieces_index + 20], False, False
 
             await _record_success()
             return all_data, False, False
@@ -304,7 +308,7 @@ async def fetch_metadata_from_itorrents_async(
             await _cache_failure(info_hash_lower, is_503=False, ttl=_METADATA_NOT_FOUND_CACHE_TTL)
             return None
         
-        size = _parse_bencode_size(torrent_data)
+        size = _parse_bencode_size(torrent_data, info_hash)
         
         if not size:
             await _cache_failure(info_hash_lower, is_503=False, ttl=_METADATA_NOT_FOUND_CACHE_TTL)

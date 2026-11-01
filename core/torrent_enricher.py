@@ -251,8 +251,8 @@ class TorrentEnricher:
             
             cross_data = cross_data_by_hash.get(info_hash)
             if cross_data:
-                tracker_seed = cross_data.get('tracker_seed')
-                tracker_leech = cross_data.get('tracker_leech')
+                tracker_seed = cross_data.get('tracker_seed_v2')
+                tracker_leech = cross_data.get('tracker_leech_v2')
                 if tracker_seed is not None and tracker_leech is not None:
                     torrent['seed_count'] = tracker_seed
                     torrent['leech_count'] = tracker_leech
@@ -300,8 +300,8 @@ class TorrentEnricher:
                 saved_to_redis = False
                 try:
                     save_cross_data_to_redis(info_hash, {
-                        'tracker_seed': seed,
-                        'tracker_leech': leech,
+                        'tracker_seed_v2': seed,
+                        'tracker_leech_v2': leech,
                     })
                     saved_to_redis = True
                 except Exception:

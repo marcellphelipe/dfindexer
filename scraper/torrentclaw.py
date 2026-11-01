@@ -499,8 +499,8 @@ class TorrentclawScraper(BaseScraper):
                 if not item.get('has_pt_br_audio') and '[Eng]' not in processed:
                     processed = f"{processed} [Eng]".strip()
             torrent['title_processed'] = processed
-            torrent['seed_count'] = item.get('seeders') or 0
-            torrent['leech_count'] = item.get('leechers') or 0
+            torrent['seed_count'] = item.get('seeders')
+            torrent['leech_count'] = item.get('leechers')
             torrents.append(torrent)
         return torrents
 
@@ -689,8 +689,8 @@ class TorrentclawScraper(BaseScraper):
                 'magnet': magnet,
                 'raw_title': raw_title,
                 'size': format_bytes(size_bytes) if size_bytes else '',
-                'seeders': seeders or 0,
-                'leechers': leechers or 0,
+                'seeders': seeders,
+                'leechers': leechers,
                 'season': season,
                 'episode': episode,
                 'date': date,
@@ -763,8 +763,8 @@ class TorrentclawScraper(BaseScraper):
             'magnet': magnet,
             'raw_title': '',
             'size': '',
-            'seeders': 0,
-            'leechers': 0,
+            'seeders': None,
+            'leechers': None,
             'season': None,
             'episode': None,
             'date': None,

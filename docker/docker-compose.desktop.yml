@@ -1,0 +1,40 @@
+# Isolated test stack for Docker Desktop (macOS/Windows).
+# Ports are allocated automatically and bound only on the host loopback.
+services:
+  redis:
+    image: redis:7-alpine
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    environment:
+      LOG_LEVEL: info
+      TZ: America/Sao_Paulo
+  indexer:
+    build:
+      context: ..
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      FLARESOLVERR_ADDRESS: http://flaresolverr:8191
+      PORT: 7006
+    ports:
+      - '127.0.0.1::7006'
+    depends_on:
+      - redis
+  prowlarr:
+    image: ghcr.io/hotio/prowlarr:latest
+    environment:
+      TZ: America/Sao_Paulo
+    ports:
+      - '127.0.0.1::9696'
+    volumes:
+      - ./desktop-test/prowlarr:/config
+  sonarr:
+    profiles: [sonarr]
+    image: lscr.io/linuxserver/sonarr:latest
+    environment:
+      TZ: America/Sao_Paulo
+    ports:
+      - '127.0.0.1::8989'
+    volumes:
+      - ./desktop-test/sonarr:/config
+      - ./desktop-test/library:/tv

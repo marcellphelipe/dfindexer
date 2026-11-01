@@ -257,3 +257,44 @@ Contribuições são bem-vindas! Sinta-se à vontade para abrir issues ou pull r
 ## ⚠️ Notas
 ** Este é um projeto de indexação de torrents. 
 ** Use com responsabilidade e respeite os direitos autorais.
+
+### Docker Desktop — ambiente isolado para testes
+
+No macOS ou Windows, use rede bridge e portas locais aleatórias para não ocupar
+as portas padrão de outras instalações. A opção `sonarr` adiciona um Sonarr
+separado, sem cliente de download configurado:
+
+```sh
+mkdir -p docker/desktop-test/prowlarr/Definitions/Custom
+cp docker/prowlarr.desktop.yml docker/desktop-test/prowlarr/Definitions/Custom/dfindexer.yml
+docker compose -p dfindexer-test -f docker/docker-compose.desktop.yml --profile sonarr up -d --build
+docker compose -p dfindexer-test -f docker/docker-compose.desktop.yml --profile sonarr ps
+# Parar e remover os containers e a rede de teste:
+docker compose -p dfindexer-test -f docker/docker-compose.desktop.yml --profile sonarr down -v
+```
+
+O comando `ps` informa as portas escolhidas para a API, o Prowlarr e o Sonarr,
+acessíveis somente em `127.0.0.1`. As configurações ficam em
+`docker/desktop-test/`, que não é apagado pelo `down`. A definição personalizada
+é copiada para o Prowlarr de teste e usa `http://indexer:7006/` dentro da rede.
+Cadastre a definição no Prowlarr e configure o Sonarr manualmente. Não é
+necessário conectar um cliente de download para realizar buscas interativas.
+
+### Limitações dos resultados
+
+- Tamanhos obtidos dos metadados `.torrent` são somados e validados contra o
+  info hash; o parâmetro `xl` é uma declaração do magnet. Valores indisponíveis
+  permanecem desconhecidos, em vez de receberem um tamanho fictício. Metadados
+  incompatíveis, incompletos, versões apenas v2 ou maiores que 8 MiB podem não
+  fornecer tamanho. Dados antigos de metadata e contagens cruzadas não são
+  reaproveitados, pois podem ter sido calculados incorretamente.
+- `seed_count` e `leech_count` podem ser `null` quando desconhecidos. O feed
+  para Prowlarr (`prowlarr_compat=true`) representa esses valores como zero;
+  zero nesse feed pode significar desconhecido ou zero medido. O Prowlarr pode
+  descartar resultados sem tamanho.
+- Tags de idioma são inferidas de nomes, páginas e metadados, não verificadas
+  nas faixas dos arquivos. Em particular, `dual` não comprova a presença de
+  inglês nem de português brasileiro. Revise os resultados antes de automatizar.
+- A regra de desambiguação para `Matéria Escura` / `Dark Matter` insere o ano
+  de estreia 2024 para os nomes identificados com esse título em português;
+  identificação incorreta pela fonte ainda pode gerar uma associação incorreta.

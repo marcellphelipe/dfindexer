@@ -220,11 +220,11 @@ def get_cross_data_from_redis(info_hash: str) -> Optional[Dict[str, Any]]:
                 result[field_str] = value_str.lower() == 'true'
             elif field_str == 'has_legenda':
                 result[field_str] = value_str.lower() == 'true'
-            elif field_str in ('tracker_seed', 'tracker_leech'):
+            elif field_str in ('tracker_seed_v2', 'tracker_leech_v2'):
                 try:
-                    result[field_str] = int(value_str) if value_str and value_str != 'N/A' else 0
+                    result[field_str] = int(value_str) if value_str and value_str != 'N/A' else None
                 except (ValueError, TypeError):
-                    result[field_str] = 0
+                    result[field_str] = None
             else:
                 result[field_str] = value_str if value_str and value_str != 'N/A' else None
 
@@ -258,7 +258,7 @@ def save_cross_data_to_redis(info_hash: str, data: Dict[str, Any]) -> None:
             if value is None:
                 continue
 
-            if field in ('tracker_seed', 'tracker_leech'):
+            if field in ('tracker_seed_v2', 'tracker_leech_v2'):
                 if value != '' and value != 'N/A':
                     if isinstance(value, int):
                         to_save[field] = str(value)
@@ -280,7 +280,7 @@ def save_cross_data_to_redis(info_hash: str, data: Dict[str, Any]) -> None:
         redis.hset(key, mapping=to_save)
 
         from app.config import Config
-        has_tracker_data = 'tracker_seed' in to_save or 'tracker_leech' in to_save
+        has_tracker_data = 'tracker_seed_v2' in to_save or 'tracker_leech_v2' in to_save
 
         current_ttl = redis.ttl(key)
 

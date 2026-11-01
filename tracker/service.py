@@ -610,9 +610,9 @@ class TrackerService:
         self._list_provider = TrackerListProvider(redis_client=self.redis)
         self.max_trackers = max_trackers
 
-    def get_peers(self, info_hash: str, trackers: Iterable[str]) -> Tuple[int, int]:
+    def get_peers(self, info_hash: str, trackers: Iterable[str]) -> Optional[Tuple[int, int]]:
         result = self.get_peers_bulk({info_hash: list(trackers)})
-        return result.get(info_hash, (0, 0))
+        return result.get(info_hash)
 
     def get_peers_bulk(
         self, infohash_trackers: Dict[str, List[str]]
@@ -655,17 +655,12 @@ class TrackerService:
                     if peers is not None:
                         results[info_hash] = peers
                         self._store_cache(info_hash, peers)
-                    else:
-                        results[info_hash] = (0, 0)
                 except Exception as exc:
                     logger.warning("Falha ao obter peers para %s: %s", info_hash, exc)
-                    results[info_hash] = (0, 0)
         except Exception as e:
             remaining = [h for h in todo if h not in _seen]
             if remaining:
-                logger.debug("Tracker batch: timeout/erro após %ds, %d pendentes recebem (0,0)", _PEER_BATCH_TIMEOUT, len(remaining))
-            for info_hash in remaining:
-                results[info_hash] = (0, 0)
+                logger.debug("Tracker batch: timeout/erro após %ds, %d pendentes permanecem desconhecidos", _PEER_BATCH_TIMEOUT, len(remaining))
 
         return results
 

@@ -45,14 +45,13 @@ search:
       response:
         type: json
   inputs:
+    prowlarr_compat: "true"
     use_flaresolverr: "{{ .Config.use_flaresolverr }}"
     q: "{{ .Keywords }}"
   keywordsfilters:
     - name: tolower
     - name: re_replace
-      args: ["(?i)(S0)(\\d{1,2})$", "temporada $2"]
-    - name: re_replace
-      args: ["(?i)(S)(\\d{1,3})$", "temporada $2"]
+      args: ["(?i)\\s+s\\d{1,3}(?:e\\d{1,3})?$", ""]
 
   rows:
     selector: $.results
@@ -76,19 +75,16 @@ search:
     size:
       selector: size
       optional: true
-      filters:
-        - name: re_replace
-          args: ["^(|0 B|0B)$", "2,5 GB"]
     seeders:
       selector: seed_count
       filters:
         - name: re_replace
-          args: ["^(|null|0)$", "1"]
+          args: ["^(|null)$", "0"]
     leechers:
       selector: leech_count
       filters:
         - name: re_replace
-          args: ["^(|null|0)$", "1"]
+          args: ["^(|null)$", "0"]
     imdb:
       selector: imdb
     category_is_tv_show:

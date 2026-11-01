@@ -12,3 +12,5 @@ redis_data/
 prowlarr/
 docker/redis_data/
 docker/prowlarr/
+
+docker/desktop-test/
