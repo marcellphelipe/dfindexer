@@ -1,3 +1,4 @@
+from api.episode_filter import episode_request, matches_episode
 # Copyright (c) 2025 DFlexy · https://github.com/DFlexy
 
 import sys
@@ -461,6 +462,11 @@ def indexer_handler(site_name: str = None):
                 )
         else:
             torrents, filter_stats = _run_all_scrapers(available_types, types_info, params)
+
+        requested_episode = episode_request(request.args.get('season'), request.args.get('ep'),
+                                            request.args.get('original_keywords'))
+        if requested_episode:
+            torrents = [t for t in torrents if matches_episode(t.get('title', ''), *requested_episode)]
 
         torrents, _ = validate_torrent_results(torrents, log_prefix)
         log_response_diagnostics(torrents, filter_stats, log_prefix)

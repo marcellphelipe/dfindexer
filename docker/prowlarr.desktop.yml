@@ -48,6 +48,9 @@ search:
     prowlarr_compat: "true"
     use_flaresolverr: "{{ .Config.use_flaresolverr }}"
     q: "{{ .Keywords }}"
+    season: "{{ .Query.Season }}"
+    ep: "{{ .Query.Ep }}"
+    original_keywords: "{{ .Query.Keywords }}"
   keywordsfilters:
     - name: tolower
     - name: re_replace
