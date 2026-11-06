@@ -5,7 +5,7 @@ sys.dont_write_bytecode = True
 
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from magnet.parser import MagnetParser
@@ -105,24 +105,44 @@ def apply_size_fallback(
             pass
 
 
+def _metadata_created_at(torrent: Dict) -> Optional[datetime]:
+    metadata = torrent.get('_metadata') or {}
+    raw = metadata.get('creation_date') or metadata.get('created_time')
+    if not raw:
+        return None
+    try:
+        if isinstance(raw, str) and not raw.isdigit():
+            return datetime.strptime(raw[:19], '%Y-%m-%dT%H:%M:%S')
+        created = datetime.utcfromtimestamp(int(raw))
+    except (ValueError, TypeError, OverflowError, OSError):
+        return None
+    if created > datetime.utcnow() + timedelta(days=1):
+        return None
+    return created
+
+
 def apply_date_fallback(torrents: List[Dict], skip_metadata: bool = False) -> None:
+    fmt = '%Y-%m-%dT%H:%M:%SZ'
     for torrent in torrents:
+        page_date = None
         if torrent.get('date', ''):
+            try:
+                page_date = datetime.strptime(torrent['date'], fmt)
+            except (ValueError, TypeError):
+                continue
+
+        created = None if skip_metadata else _metadata_created_at(torrent)
+
+        # Catalog pages keep the date they were first created, even after a new
+        # release is attached to them. A torrent cannot predate its own release,
+        # so a later creation date is the better publication date.
+        if created and (page_date is None or created > page_date):
+            torrent['date'] = created.strftime(fmt)
+            continue
+        if page_date:
             continue
 
-        if not skip_metadata and torrent.get('_metadata') and 'created_time' in torrent['_metadata']:
-            try:
-                created_time = torrent['_metadata']['created_time']
-                if created_time:
-                    if isinstance(created_time, str):
-                        torrent['date'] = created_time
-                    else:
-                        torrent['date'] = datetime.fromtimestamp(created_time).strftime('%Y-%m-%dT%H:%M:%SZ')
-                    continue
-            except Exception:
-                pass
-
-        torrent['date'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ')
+        torrent['date'] = datetime.now().strftime(fmt)
 
 
 _IMDB_TECHNICAL_PATTERNS = [

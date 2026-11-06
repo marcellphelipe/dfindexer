@@ -9,7 +9,8 @@ from typing import Any, Callable, Dict, List
 
 from bs4 import NavigableString, Tag
 
-from utils.text import check_query_match
+from app.config import Config
+from utils.text import check_query_match, torrent_year_matches_query
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,16 @@ class QueryFilter:
                 original_title,
                 title_translated,
             )
+
+            if result and not torrent_year_matches_query(
+                query,
+                torrent.get('year'),
+                title_processed,
+                original_title,
+                tolerance=Config.QUERY_YEAR_LINK_TOLERANCE,
+            ):
+                logger.debug(f"Resultado Rejeitado (ano): Query='{query[:50]}' | Title='{title_processed[:60]}' | Year='{torrent.get('year')}'")
+                return False
 
             if result:
                 logger.debug(f"Resultado Aprovado: Query='{query[:50]}' | Title='{title_processed[:60]}' | Original='{original_title[:40]}' | Translated='{title_translated[:40]}'")

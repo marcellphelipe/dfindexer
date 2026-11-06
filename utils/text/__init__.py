@@ -818,6 +818,30 @@ def filter_urls_by_query_year(
             filtered.append(url)
     return filtered
 
+def torrent_year_matches_query(
+    query: str,
+    year_field,
+    *texts: str,
+    tolerance: int = 1,
+) -> bool:
+    """False only when the query names a year and the release clearly belongs to another one.
+
+    A same-named remake/sequel (e.g. 2021 vs 2026) shares every title word, so the
+    year is the only signal that separates them. Releases with no year at all are kept.
+    """
+    query_year = extract_query_year(query)
+    if not query_year:
+        return True
+    years: set[str] = set()
+    field_years = extract_years_from_text(str(year_field)) if year_field else set()
+    years |= field_years
+    for text in texts:
+        years |= extract_years_from_text(str(text or ''))
+    if not years:
+        return True
+    return any(slug_year_matches_query_year(y, query_year, tolerance) for y in years)
+
+
 def _query_word_spans_title_words(title_normalized: str, query_word: str) -> bool:
     query_compact = re.sub(r'[^a-z0-9]', '', remove_accents(query_word.lower()))
     if len(query_compact) < 4:
