@@ -428,6 +428,8 @@ def can_skip_metadata_fetch(torrent: Dict, cross_data: Optional[Dict]) -> bool:
         return False
     if not cross_data.get('magnet_processed') or not cross_data.get('size'):
         return False
+    if cross_data.get('creation_date') is None:
+        return False  # torrent creation date not stored yet: fetch once to get the real date
     meta_name = (cross_data.get('metadata_name') or '').strip()
     if meta_name and not magnet_original_needs_raw_name(meta_name):
         return True

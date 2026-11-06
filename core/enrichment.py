@@ -105,10 +105,12 @@ def apply_size_fallback(
             pass
 
 
-def _metadata_created_at(torrent: Dict) -> Optional[datetime]:
+def _metadata_created_at(torrent: Dict, cross_data: Optional[Dict[str, Any]] = None) -> Optional[datetime]:
     metadata = torrent.get('_metadata') or {}
     raw = metadata.get('creation_date') or metadata.get('created_time')
-    if not raw:
+    if not raw and cross_data:
+        raw = cross_data.get('creation_date')
+    if not raw or str(raw) == '0':
         return None
     try:
         if isinstance(raw, str) and not raw.isdigit():
@@ -123,6 +125,14 @@ def _metadata_created_at(torrent: Dict) -> Optional[datetime]:
 
 def apply_date_fallback(torrents: List[Dict], skip_metadata: bool = False) -> None:
     fmt = '%Y-%m-%dT%H:%M:%SZ'
+    cross_data_by_hash: Dict[str, Dict[str, Any]] = {}
+    if not skip_metadata:
+        try:
+            cross_data_by_hash = bulk_get_cross_data(
+                [str(t.get('info_hash') or '').lower() for t in torrents if not t.get('_metadata')]
+            )
+        except Exception:
+            cross_data_by_hash = {}
     for torrent in torrents:
         page_date = None
         if torrent.get('date', ''):
@@ -131,7 +141,8 @@ def apply_date_fallback(torrents: List[Dict], skip_metadata: bool = False) -> No
             except (ValueError, TypeError):
                 continue
 
-        created = None if skip_metadata else _metadata_created_at(torrent)
+        cross = cross_data_by_hash.get(str(torrent.get('info_hash') or '').lower())
+        created = None if skip_metadata else _metadata_created_at(torrent, cross)
 
         # Catalog pages keep the date they were first created, even after a new
         # release is attached to them. A torrent cannot predate its own release,
@@ -254,6 +265,11 @@ def save_metadata_name_to_cross_data(torrent: Dict, metadata: Dict) -> None:
         info_hash = (torrent.get('info_hash') or '').lower()
         if not info_hash or len(info_hash) != 40:
             return
+
+        if metadata:
+            # 0 marks "fetched, torrent has no creation date" so it is not refetched forever.
+            from utils.text import save_cross_data_to_redis as _save_date
+            _save_date(info_hash, {'creation_date': int(metadata.get('creation_date') or 0)})
 
         metadata_name = metadata.get('name', '').strip() if metadata else None
         if not metadata_name or len(metadata_name) < 3:

@@ -17,3 +17,11 @@ def test_no_date_uses_creation():
     t = {'date': '', '_metadata': {'creation_date': 1793000000}}
     apply_date_fallback([t])
     assert t['date'].startswith('2026-10-2')
+
+
+def test_creation_date_from_cross_data(monkeypatch):
+    import core.enrichment as e
+    monkeypatch.setattr(e, 'bulk_get_cross_data', lambda hashes: {'a' * 40: {'creation_date': '1793000000'}})
+    t = {'date': '2026-02-11T00:00:00Z', 'info_hash': 'a' * 40}
+    e.apply_date_fallback([t])
+    assert t['date'].startswith('2026-10-2')
