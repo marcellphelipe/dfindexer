@@ -7,7 +7,7 @@ import re
 import logging
 from datetime import datetime
 from utils.parsing import parse_date_from_string
-from typing import List, Dict, Optional, Callable
+from typing import List, Dict, Optional, Callable, Tuple
 from urllib.parse import urlencode, urljoin
 from bs4 import BeautifulSoup
 from scraper.base import BaseScraper
@@ -23,6 +23,30 @@ _log_ctx = ScraperLogContext("Rede", logger)
 _RE_H1_TORRENT_SUFFIX = re.compile(r'\s+Torrent\b.*$', re.IGNORECASE)
 _RE_YEAR = re.compile(r'\((\d{4})\)')
 _RE_ISO_YEAR = re.compile(r'(\d{4})')
+_RE_LABEL_DUAL = re.compile(r'\bDUAL\b', re.IGNORECASE)
+_RE_LABEL_DUBLADO = re.compile(r'\b(?:DUBLADO|NACIONAL)\b', re.IGNORECASE)
+_RE_LABEL_LEGENDADO = re.compile(r'\bLEGENDADO\b', re.IGNORECASE)
+
+
+def audio_from_download_label(label: str, magnet_link: str = '') -> Optional[str]:
+    """Audio declared for one download (button label + magnet dn).
+
+    The page-level "Idioma" spec describes every release on the page together,
+    so a "Português / Inglês" page also lists LEGENDADO (English-only) magnets.
+    """
+    dn = ''
+    if magnet_link:
+        from urllib.parse import parse_qs
+        query = magnet_link.split('?', 1)[1] if '?' in magnet_link else ''
+        dn = (parse_qs(query).get('dn') or [''])[0]
+    text = f'{label} {dn}'.replace('-', ' ').replace('.', ' ').replace('_', ' ')
+    if _RE_LABEL_DUAL.search(text):
+        return 'dual'
+    if _RE_LABEL_DUBLADO.search(text):
+        return 'português'
+    if _RE_LABEL_LEGENDADO.search(text):
+        return 'inglês'
+    return None
 
 SITE = SiteConfig(
     # Endereço do site: ajuste aqui se o domínio mudar.
@@ -252,7 +276,17 @@ class RedeScraper(BaseScraper):
         return extract_date_from_page(doc, absolute_link, self.SCRAPER_TYPE)
 
     def _collect_magnet_links(self, doc: BeautifulSoup) -> List[str]:
+        return [magnet for magnet, _label in self._collect_magnets_with_labels(doc)]
+
+    @staticmethod
+    def _download_label(link) -> str:
+        row = link.find_parent(class_='download-row')
+        name_el = row.select_one('.download-name') if row else None
+        return name_el.get_text(' ', strip=True) if name_el else ''
+
+    def _collect_magnets_with_labels(self, doc: BeautifulSoup) -> List[Tuple[str, str]]:
         magnet_links: List[str] = []
+        labels: Dict[str, str] = {}
         scoped = []
         for block in doc.select(SITE.seletores["links_download"]):
             scoped.extend(block.select('a[href]'))
@@ -267,6 +301,7 @@ class RedeScraper(BaseScraper):
             if resolved_magnet and resolved_magnet.startswith('magnet:'):
                 if resolved_magnet not in magnet_links:
                     magnet_links.append(resolved_magnet)
+                    labels[resolved_magnet] = self._download_label(link)
 
         if not magnet_links:
             for link in doc.select('a[href]'):
@@ -277,7 +312,8 @@ class RedeScraper(BaseScraper):
                 if resolved_magnet and resolved_magnet.startswith('magnet:'):
                     if resolved_magnet not in magnet_links:
                         magnet_links.append(resolved_magnet)
-        return magnet_links
+                        labels[resolved_magnet] = self._download_label(link)
+        return [(magnet, labels.get(magnet, '')) for magnet in magnet_links]
     
     def _get_torrents_from_page(self, link: str) -> List[Dict]:
         absolute_link = urljoin(self.base_url, link) if link and not link.startswith('http') else link
@@ -356,8 +392,8 @@ class RedeScraper(BaseScraper):
             sizes.extend(find_sizes_from_text(name_el.get_text(' ', strip=True)))
         sizes = list(dict.fromkeys(sizes))
 
-        magnet_links = self._collect_magnet_links(doc)
-        if not magnet_links:
+        magnets_with_labels = self._collect_magnets_with_labels(doc)
+        if not magnets_with_labels:
             return []
 
         from utils.parsing import extract_imdb_from_soup
@@ -365,22 +401,35 @@ class RedeScraper(BaseScraper):
         imdb = extract_imdb_from_soup(doc, content_div=specs_root)
         
         from core.torrent_builder import build_torrents_from_magnets
-        return build_torrents_from_magnets(
-            magnet_links=magnet_links,
-            sizes=sizes,
-            page_title=title,
-            original_title=original_title,
-            title_translated_processed=title_translated_processed,
-            year=year,
-            imdb=imdb,
-            audio_info=audio_info,
-            audio_html_content=audio_html_content,
-            absolute_link=absolute_link,
-            date=date,
-            legend_info=legend_info,
-            skip_metadata=self._skip_metadata,
-            doc=doc,
-            scraper_type=self.SCRAPER_TYPE,
-            log_ctx=_log_ctx,
-            fallback_title_priority='original_then_page',
-        )
+        legenda_suffix = f' Legenda: {legenda}' if legenda else ''
+        torrents: List[Dict] = []
+        for idx, (magnet_link, label) in enumerate(magnets_with_labels):
+            magnet_audio = audio_from_download_label(label, magnet_link)
+            if magnet_audio:
+                # The download itself says what audio it carries; the page-level
+                # spec would otherwise tag English-only releases as [Brazilian].
+                magnet_audio_info = magnet_audio
+                magnet_audio_html = f'{label}{legenda_suffix}'.strip()
+            else:
+                magnet_audio_info = audio_info
+                magnet_audio_html = audio_html_content
+            torrents.extend(build_torrents_from_magnets(
+                magnet_links=[magnet_link],
+                sizes=[sizes[idx]] if idx < len(sizes) else [],
+                page_title=title,
+                original_title=original_title,
+                title_translated_processed=title_translated_processed,
+                year=year,
+                imdb=imdb,
+                audio_info=magnet_audio_info,
+                audio_html_content=magnet_audio_html,
+                absolute_link=absolute_link,
+                date=date,
+                legend_info=legend_info,
+                skip_metadata=self._skip_metadata,
+                doc=doc,
+                scraper_type=self.SCRAPER_TYPE,
+                log_ctx=_log_ctx,
+                fallback_title_priority='original_then_page',
+            ))
+        return torrents
